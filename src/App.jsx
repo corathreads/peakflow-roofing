@@ -188,6 +188,15 @@ function monthLabel(date) {
   }).format(date)
 }
 
+function formatDays(value) {
+  const safeValue = Number.isFinite(value) ? value : 0
+  return Number.isInteger(safeValue) ? `${safeValue}` : safeValue.toFixed(1)
+}
+
+function roundUpToHalfDay(value) {
+  return Math.ceil(value * 2) / 2
+}
+
 function isSameMonth(dateValue, monthDate) {
   const date = new Date(`${dateValue}T00:00:00`)
   return date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth()
@@ -447,15 +456,29 @@ function estimateJob(form, materials) {
     flashingCost +
     deliveryFeesCost
 
-  const roofDays = Math.max(1, Math.ceil((form.roofArea / 200) * form.complexity))
+  const crewFactor = Math.max(form.employees, 1) / 2
+  const roofSqmPerDay = 200 * crewFactor
+  const gutterLmPerDay = 60 * crewFactor
+  const flashingLmPerDay = 50 * crewFactor
+  const downpipeVisitDays = roundUpToHalfDay(1 / crewFactor)
+
+  const roofDays = Math.max(0.5, roundUpToHalfDay((form.roofArea / roofSqmPerDay) * form.complexity))
   const gutterAndFasciaDays =
     form.gutterLength > 0 || form.fasciaLength > 0
-      ? Math.max(1, Math.ceil((Math.max(form.gutterLength, form.fasciaLength) / 60) * form.complexity))
+      ? Math.max(
+          0.5,
+          roundUpToHalfDay(
+            (Math.max(form.gutterLength, form.fasciaLength) / gutterLmPerDay) * form.complexity
+          )
+        )
       : 0
-  const flashingDays = form.flashingLength > 0 ? Math.max(1, Math.ceil(form.flashingLength / 50)) : 0
+  const flashingDays =
+    form.flashingLength > 0
+      ? Math.max(0.5, roundUpToHalfDay((form.flashingLength / flashingLmPerDay) * form.complexity))
+      : 0
   const installFlashingDays = form.parapetsRequired ? 0 : flashingDays
   const followUpParapetDays = form.parapetsRequired && form.flashingLength > 0 ? flashingDays : 0
-  const followUpDownpipeDays = form.downpipesRequired ? 1 : 0
+  const followUpDownpipeDays = form.downpipesRequired ? downpipeVisitDays : 0
   const installDays = roofDays + gutterAndFasciaDays + installFlashingDays
   const followUpDays = followUpParapetDays + followUpDownpipeDays
   const totalDays = installDays + followUpDays
@@ -489,6 +512,10 @@ function estimateJob(form, materials) {
     installDays,
     followUpDays,
     totalDays,
+    crewFactor,
+    roofSqmPerDay,
+    gutterLmPerDay,
+    flashingLmPerDay,
     crewDailyWages,
     labourRateUsed: libraryLabourRate,
     expenseRateUsed: libraryExpenseRate,
@@ -1424,7 +1451,7 @@ function EstimatorPage({
             <div style={{ display: 'grid', gap: 12 }}>
               <div style={metricCardStyle}>
                 <div style={{ fontSize: 13, color: '#5d694d', textTransform: 'uppercase' }}>Install days</div>
-                <div style={{ fontSize: 30, fontWeight: 800, color: '#203018' }}>{estimate.installDays}</div>
+                <div style={{ fontSize: 30, fontWeight: 800, color: '#203018' }}>{formatDays(estimate.installDays)}</div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div style={metricCardStyle}>
@@ -1443,7 +1470,7 @@ function EstimatorPage({
               <div>Delivery fees: {estimate.deliveryFeesCount} x {formatMoney(estimate.deliveryFeesCost / Math.max(estimate.deliveryFeesCount, 1))}</div>
               <div>Daily operating cost: {formatMoney(estimate.dailyOperatingCost)}</div>
               <div>Labour + expenses: {formatMoney(estimate.labourAndExpenseCost)}</div>
-              <div>Total crew days: {estimate.totalDays}</div>
+              <div>Total crew days: {formatDays(estimate.totalDays)}</div>
               <div>Follow-up date: {estimate.followUpDate ? formatDate(estimate.followUpDate) : 'Not required'}</div>
             </div>
 
@@ -1458,11 +1485,11 @@ function EstimatorPage({
           <section style={sectionCardStyle}>
             <h2 style={{ marginTop: 0 }}>Auto breakdown</h2>
             <div style={{ display: 'grid', gap: 10, color: '#516144', lineHeight: 1.5 }}>
-              <div>Roof install: {estimate.roofDays} day/s at 200 sqm/day</div>
-              <div>Fascia + gutter: {estimate.gutterAndFasciaDays} day/s at 60 lm/day</div>
-              <div>Main flashings: {estimate.installFlashingDays} day/s at 50 lm/day</div>
-              <div>Downpipe return: {estimate.followUpDownpipeDays} day/s</div>
-              <div>Parapet return: {estimate.followUpParapetDays} day/s</div>
+              <div>Roof install: {formatDays(estimate.roofDays)} day/s at {estimate.roofSqmPerDay.toFixed(0)} sqm/day for {form.employees} crew</div>
+              <div>Fascia + gutter: {formatDays(estimate.gutterAndFasciaDays)} day/s at {estimate.gutterLmPerDay.toFixed(0)} lm/day for {form.employees} crew</div>
+              <div>Main flashings: {formatDays(estimate.installFlashingDays)} day/s at {estimate.flashingLmPerDay.toFixed(0)} lm/day for {form.employees} crew</div>
+              <div>Downpipe return: {formatDays(estimate.followUpDownpipeDays)} day/s</div>
+              <div>Parapet return: {formatDays(estimate.followUpParapetDays)} day/s</div>
             </div>
           </section>
         </div>
@@ -1500,7 +1527,7 @@ function EstimatorPage({
                 <div style={{ marginTop: 16, display: 'grid', gap: 8, color: '#415036' }}>
                   <div>Quote: {formatMoney(job.estimate.sellPrice)}</div>
                   <div>Install starts: {formatDate(job.bookedStartDate)}</div>
-                  <div>Install days: {job.estimate.installDays}</div>
+                  <div>Install days: {formatDays(job.estimate.installDays)}</div>
                   <div>Follow-up: {job.estimate.followUpDate ? formatDate(job.estimate.followUpDate) : 'Not required'}</div>
                   <div>Scope: {job.roofArea} sqm roof, {job.gutterLength} lm gutter, {job.fasciaLength} lm fascia</div>
                 </div>
