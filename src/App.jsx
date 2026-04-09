@@ -113,31 +113,36 @@ const CATEGORY_LABELS = {
 }
 
 const STATUS_OPTIONS = ['Lead', 'Quoted', 'Booked', 'In Progress', 'Complete']
+const BRAND_NAME = 'RoofRun'
+const BRAND_TAGLINE = 'Quotes, takeoffs, and bookings for roofing crews.'
+const BRAND_ACCENT = '#f97316'
+const BRAND_DARK = '#161a1d'
+const BRAND_STEEL = '#2b3238'
 
 const inputStyle = {
   width: '100%',
   padding: '14px 16px',
   borderRadius: 16,
-  border: '1px solid #d6e4ea',
-  background: 'rgba(255,255,255,0.88)',
+  border: '1px solid #d4d4d8',
+  background: 'rgba(255,255,255,0.94)',
   fontSize: 15,
   boxSizing: 'border-box'
 }
 
 const sectionCardStyle = {
-  background: 'rgba(255,255,255,0.78)',
-  border: '1px solid rgba(208, 222, 231, 0.95)',
-  borderRadius: 28,
+  background: 'rgba(255,255,255,0.88)',
+  border: '1px solid rgba(212, 212, 216, 0.95)',
+  borderRadius: 24,
   padding: 22,
   backdropFilter: 'blur(18px)',
-  boxShadow: '0 22px 50px rgba(15, 23, 42, 0.08)'
+  boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)'
 }
 
 const metricCardStyle = {
-  background: 'linear-gradient(145deg, #ecfeff 0%, #eff6ff 100%)',
+  background: 'linear-gradient(145deg, #fff7ed 0%, #fef3c7 100%)',
   borderRadius: 20,
   padding: 18,
-  border: '1px solid #d4e5ee'
+  border: '1px solid #fed7aa'
 }
 
 const AUTH_USERS_KEY = 'roofing-pipeline-users'
@@ -589,16 +594,16 @@ function NumberField({ label, value, onChange, hint, min = 0, step = 1 }) {
 function MetricTile({ label, value, caption, tone = 'light' }) {
   const tones = {
     light: {
-      background: 'linear-gradient(145deg, #ecfeff 0%, #eff6ff 100%)',
-      border: '1px solid #d4e5ee',
-      color: '#0f172a',
-      accent: '#0f766e'
+      background: 'linear-gradient(145deg, #fff7ed 0%, #fef3c7 100%)',
+      border: '1px solid #fed7aa',
+      color: '#18181b',
+      accent: '#c2410c'
     },
     dark: {
-      background: 'linear-gradient(145deg, rgba(15,23,42,0.96) 0%, rgba(8,145,178,0.94) 100%)',
-      border: '1px solid rgba(125,211,252,0.24)',
+      background: 'linear-gradient(145deg, rgba(22,26,29,0.98) 0%, rgba(43,50,56,0.98) 100%)',
+      border: '1px solid rgba(251,146,60,0.28)',
       color: '#f8fafc',
-      accent: '#67e8f9'
+      accent: '#fb923c'
     }
   }
 
@@ -623,6 +628,41 @@ function MetricTile({ label, value, caption, tone = 'light' }) {
   )
 }
 
+function BrandLockup({ compact = false, light = false }) {
+  const textColor = light ? '#f8fafc' : BRAND_DARK
+  const subColor = light ? '#fdba74' : '#9a3412'
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 10 : 14 }}>
+      <div
+        style={{
+          width: compact ? 42 : 54,
+          height: compact ? 42 : 54,
+          borderRadius: compact ? 14 : 18,
+          background: `linear-gradient(145deg, ${BRAND_ACCENT} 0%, #fb923c 55%, #fdba74 100%)`,
+          boxShadow: '0 12px 24px rgba(249, 115, 22, 0.28)',
+          display: 'grid',
+          placeItems: 'center',
+          flexShrink: 0
+        }}
+      >
+        <svg width={compact ? 24 : 30} height={compact ? 24 : 30} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <path d="M8 31.5L23.5 10L39 31.5H30L23.5 22L17 31.5H8Z" fill="#161a1d" />
+          <path d="M14 36H34" stroke="#161a1d" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      </div>
+      <div>
+        <div style={{ fontSize: compact ? 20 : 28, fontWeight: 900, letterSpacing: 0.4, color: textColor }}>
+          {BRAND_NAME}
+        </div>
+        <div style={{ fontSize: compact ? 11 : 12, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: subColor }}>
+          Roofing Run Sheet
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OverviewBar({ jobs, calendarMonth, isMobile }) {
   const summary = summarisePipeline(jobs, calendarMonth)
 
@@ -631,7 +671,7 @@ function OverviewBar({ jobs, calendarMonth, isMobile }) {
       style={{
         ...sectionCardStyle,
         marginBottom: 16,
-        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.97) 0%, rgba(12, 74, 110, 0.95) 55%, rgba(8, 145, 178, 0.92) 100%)',
+        background: 'linear-gradient(135deg, rgba(22,26,29,0.98) 0%, rgba(39,39,42,0.98) 55%, rgba(154,52,18,0.94) 100%)',
         color: '#f8fafc',
         overflow: 'hidden'
       }}
@@ -639,18 +679,18 @@ function OverviewBar({ jobs, calendarMonth, isMobile }) {
       <div style={{ display: 'grid', gap: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ textTransform: 'uppercase', letterSpacing: 1.8, fontSize: 12, color: '#a5f3fc', fontWeight: 800 }}>
-              Business Snapshot
+            <div style={{ textTransform: 'uppercase', letterSpacing: 1.8, fontSize: 12, color: '#fdba74', fontWeight: 800 }}>
+              Site Office Snapshot
             </div>
             <h2 style={{ margin: '8px 0 10px', fontSize: isMobile ? 28 : 34 }}>
-              Keep quoting, bookings, and follow-ups in one run sheet.
+              Run the quote board, takeoff desk, and booking sheet from one place.
             </h2>
-            <p style={{ margin: 0, maxWidth: 720, lineHeight: 1.6, color: '#d9f7ff' }}>
+            <p style={{ margin: 0, maxWidth: 720, lineHeight: 1.6, color: '#fde7d7' }}>
               This month is tracking {formatMoney(summary.monthRevenue)} across scheduled starts, with
               {` ${summary.returnVisits} `}jobs already earmarked for a return visit.
             </p>
           </div>
-          <div style={{ padding: '10px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.12)', fontWeight: 700 }}>
+          <div style={{ padding: '10px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.1)', fontWeight: 700 }}>
             {jobs.length} jobs in pipeline
           </div>
         </div>
@@ -1048,20 +1088,20 @@ function useViewport() {
 function Header({ activePage, setActivePage, isMobile }) {
   const descriptions = {
     estimator: {
-      title: 'Simple quoting with the job math done for you.',
-      text: 'Enter the site quantities, then let the software work out materials, crew cost, install time, and follow-up bookings.'
+      title: 'Price the roof, crew, and return visits without a spreadsheet.',
+      text: 'Punch in the site quantities and RoofRun turns them into material totals, crew timing, deposit splits, and a job-ready quote.'
     },
     materials: {
-      title: 'One clean place for your supply rates.',
-      text: 'Keep roofing, gutters, fascia, insulation, and extras priced here so every quote uses the same numbers.'
+      title: 'Keep your metal, gutter, and labour rates site-ready.',
+      text: 'Store the supply rates your crew actually uses so every quote, takeoff, and follow-up booking pulls from the same price board.'
     },
     calendar: {
-      title: 'See installs and return trips in one calendar.',
-      text: 'Main installs and the 4-week downpipe or parapet follow-up bookings are laid out automatically.'
+      title: 'See installs, returns, and booked starts like a run sheet.',
+      text: 'Main installs and the 4-week downpipe or parapet return trips are laid out automatically so the crew can plan ahead.'
     },
     takeoff: {
-      title: 'Upload a plan and trace out the roof takeoff.',
-      text: 'Calibrate scale from the plan, measure roof area and lineal items, then push those quantities into your quote.'
+      title: 'Upload the plans and knock out a measured takeoff.',
+      text: 'Set the scale from the drawing, trace roof area and lineal items, then send those measured quantities straight into the quote.'
     }
   }
 
@@ -1076,10 +1116,8 @@ function Header({ activePage, setActivePage, isMobile }) {
         alignItems: isMobile ? 'stretch' : 'flex-start'
       }}
     >
-      <div>
-        <p style={{ margin: 0, textTransform: 'uppercase', letterSpacing: 2, fontSize: 12, color: '#0891b2', fontWeight: 800 }}>
-          PeakFlow Roofing
-        </p>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <BrandLockup />
         <h1 style={{ fontSize: 'clamp(2.2rem, 5vw, 4rem)', lineHeight: 1, margin: '8px 0 10px' }}>
           {descriptions[activePage].title}
         </h1>
@@ -1103,8 +1141,8 @@ function Header({ activePage, setActivePage, isMobile }) {
       >
         {[
           { id: 'estimator', label: 'Job Estimator' },
-          { id: 'materials', label: 'Materials Pricing' },
-          { id: 'calendar', label: 'Booking Calendar' },
+          { id: 'materials', label: 'Price Board' },
+          { id: 'calendar', label: 'Run Sheet' },
           { id: 'takeoff', label: 'Plan Takeoff' }
         ].map((tab) => (
           <button
@@ -1114,7 +1152,7 @@ function Header({ activePage, setActivePage, isMobile }) {
               border: 'none',
               borderRadius: 14,
               padding: '12px 18px',
-              background: activePage === tab.id ? 'linear-gradient(135deg, #0f172a 0%, #0f766e 100%)' : 'transparent',
+              background: activePage === tab.id ? `linear-gradient(135deg, ${BRAND_DARK} 0%, ${BRAND_ACCENT} 100%)` : 'transparent',
               color: activePage === tab.id ? '#f8fafc' : '#0f172a',
               fontWeight: 800,
               cursor: 'pointer'
@@ -1152,29 +1190,27 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
         <section
           style={{
             ...sectionCardStyle,
-            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(8, 145, 178, 0.9) 100%)',
+            background: 'linear-gradient(135deg, rgba(22,26,29,0.98) 0%, rgba(41,37,36,0.98) 55%, rgba(194,65,12,0.92) 100%)',
             color: '#f8fafc',
             padding: 28
           }}
         >
-          <p style={{ margin: 0, textTransform: 'uppercase', letterSpacing: 2, fontSize: 12, color: '#bae6fd', fontWeight: 800 }}>
-            PeakFlow Roofing
-          </p>
+          <BrandLockup light />
           <h1 style={{ margin: '10px 0 14px', fontSize: 'clamp(2rem, 6vw, 3.8rem)', lineHeight: 1 }}>
-            Run quotes, pricing, and bookings from one clean web app.
+            Built for roofers who need quotes, takeoffs, and bookings to move fast.
           </h1>
-          <p style={{ margin: 0, maxWidth: 520, color: '#dbeafe', fontSize: 17, lineHeight: 1.7 }}>
-            Sign in to manage your roofing quotes, pricing, labour, and bookings in one place.
+          <p style={{ margin: 0, maxWidth: 520, color: '#ffedd5', fontSize: 17, lineHeight: 1.7 }}>
+            {BRAND_TAGLINE}
           </p>
 
           <div style={{ display: 'grid', gap: 12, marginTop: 24 }}>
             {[
-              'Mobile-friendly quoting and scheduling',
-              'Editable materials and labour price library',
-              'Automatic install and follow-up booking dates'
+              'Crew-ready quoting and deposit splits',
+              'Measured takeoffs from uploaded roof plans',
+              'Automatic installs and return-visit scheduling'
             ].map((item) => (
-              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#e0f2fe', fontWeight: 600 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 999, background: '#67e8f9', display: 'inline-block' }} />
+              <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#ffedd5', fontWeight: 600 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 999, background: '#fb923c', display: 'inline-block' }} />
                 {item}
               </div>
             ))}
@@ -1202,7 +1238,7 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
                   border: 'none',
                   borderRadius: 14,
                   padding: '12px 18px',
-                  background: authMode === mode ? 'linear-gradient(135deg, #0f172a 0%, #0f766e 100%)' : 'transparent',
+                  background: authMode === mode ? `linear-gradient(135deg, ${BRAND_DARK} 0%, ${BRAND_ACCENT} 100%)` : 'transparent',
                   color: authMode === mode ? '#f8fafc' : '#0f172a',
                   fontWeight: 800,
                   cursor: 'pointer'
@@ -1282,7 +1318,7 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
                 border: 'none',
                 borderRadius: 18,
                 padding: '15px 18px',
-                background: 'linear-gradient(135deg, #0f172a 0%, #0f766e 100%)',
+                background: `linear-gradient(135deg, ${BRAND_DARK} 0%, ${BRAND_ACCENT} 100%)`,
                 color: '#f8fafc',
                 fontWeight: 800,
                 fontSize: 16,
@@ -2216,7 +2252,7 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div style={{ minHeight: '100vh', background: 'transparent', color: '#0f172a', fontFamily: '"Inter", "Segoe UI", sans-serif', padding: '20px 16px calc(32px + env(safe-area-inset-bottom))' }}>
+      <div style={{ minHeight: '100vh', background: 'transparent', color: '#0f172a', fontFamily: '"Trebuchet MS", "Franklin Gothic Medium", "Segoe UI", sans-serif', padding: '20px 16px calc(32px + env(safe-area-inset-bottom))' }}>
         <AuthPage
           authMode={authMode}
           setAuthMode={(mode) => {
@@ -2235,18 +2271,21 @@ export default function App() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'transparent', color: '#0f172a', fontFamily: '"Inter", "Segoe UI", sans-serif', padding: '20px 16px calc(32px + env(safe-area-inset-bottom))' }}>
+    <div style={{ minHeight: '100vh', background: 'transparent', color: '#0f172a', fontFamily: '"Trebuchet MS", "Franklin Gothic Medium", "Segoe UI", sans-serif', padding: '20px 16px calc(32px + env(safe-area-inset-bottom))' }}>
       <div style={{ maxWidth: 1320, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-          <div style={{ color: '#475569', fontWeight: 600 }}>Signed in as {currentUser.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <BrandLockup compact />
+            <div style={{ color: '#52525b', fontWeight: 700 }}>Signed in as {currentUser.name}</div>
+          </div>
           <button
             onClick={logout}
             style={{
-              border: '1px solid #d6e4ea',
+              border: '1px solid #d4d4d8',
               borderRadius: 16,
               padding: '10px 14px',
-              background: 'rgba(255,255,255,0.84)',
-              color: '#0f172a',
+              background: 'rgba(255,255,255,0.9)',
+              color: BRAND_DARK,
               fontWeight: 700,
               cursor: 'pointer'
             }}
