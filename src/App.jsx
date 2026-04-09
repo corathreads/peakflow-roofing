@@ -395,7 +395,30 @@ function NumberField({ label, value, onChange, hint, min = 0, step = 1 }) {
   )
 }
 
-function Header({ activePage, setActivePage }) {
+function useViewport() {
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 1280 : window.innerWidth
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const handleResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  return {
+    isMobile: viewportWidth < 720,
+    isTablet: viewportWidth < 1024,
+    viewportWidth
+  }
+}
+
+function Header({ activePage, setActivePage, isMobile }) {
   const descriptions = {
     estimator: {
       title: 'Simple quoting with the job math done for you.',
@@ -412,7 +435,16 @@ function Header({ activePage, setActivePage }) {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        gap: 16,
+        flexWrap: 'wrap',
+        marginBottom: 24,
+        alignItems: isMobile ? 'stretch' : 'flex-start'
+      }}
+    >
       <div>
         <p style={{ margin: 0, textTransform: 'uppercase', letterSpacing: 2, fontSize: 12, color: '#0891b2', fontWeight: 800 }}>
           PeakFlow Roofing
@@ -425,7 +457,19 @@ function Header({ activePage, setActivePage }) {
         </p>
       </div>
 
-      <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.72)', border: '1px solid #d7e7ef', padding: 6, borderRadius: 20, gap: 6, backdropFilter: 'blur(14px)' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+          width: isMobile ? '100%' : 'auto',
+          background: 'rgba(255,255,255,0.72)',
+          border: '1px solid #d7e7ef',
+          padding: 6,
+          borderRadius: 20,
+          gap: 6,
+          backdropFilter: 'blur(14px)'
+        }}
+      >
         {[
           { id: 'estimator', label: 'Job Estimator' },
           { id: 'materials', label: 'Materials Pricing' },
@@ -453,6 +497,8 @@ function Header({ activePage, setActivePage }) {
 }
 
 function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, authNotice, submitAuth }) {
+  const { isMobile } = useViewport()
+
   return (
     <div
       style={{
@@ -466,7 +512,7 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
           width: '100%',
           maxWidth: 980,
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.1fr) minmax(320px, 0.9fr)',
+          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.1fr) minmax(320px, 0.9fr)',
           gap: 24,
           alignItems: 'stretch'
         }}
@@ -504,7 +550,18 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
         </section>
 
         <section style={{ ...sectionCardStyle, padding: 28 }}>
-          <div style={{ display: 'inline-flex', background: 'rgba(241,245,249,0.95)', borderRadius: 18, padding: 6, gap: 6, marginBottom: 22 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              width: '100%',
+              background: 'rgba(241,245,249,0.95)',
+              borderRadius: 18,
+              padding: 6,
+              gap: 6,
+              marginBottom: 22
+            }}
+          >
             {['login', 'signup'].map((mode) => (
               <button
                 key={mode}
@@ -609,14 +666,23 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
   )
 }
 
-function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }) {
+function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, isMobile, isTablet }) {
+  const formColumns = isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))'
+
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(320px, 0.9fr)', gap: 24, alignItems: 'start' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1.3fr) minmax(320px, 0.9fr)',
+          gap: 24,
+          alignItems: 'start'
+        }}
+      >
         <div style={{ display: 'grid', gap: 20 }}>
           <section style={sectionCardStyle}>
             <h2 style={{ marginTop: 0 }}>1. Job details</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: formColumns, gap: 16 }}>
               <Field label="Job name">
                 <input value={form.jobName} onChange={(event) => updateField('jobName', event.target.value)} placeholder="Smith reroof" style={inputStyle} />
               </Field>
@@ -651,7 +717,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }
 
           <section style={sectionCardStyle}>
             <h2 style={{ marginTop: 0 }}>2. Site quantities</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: formColumns, gap: 16 }}>
               <NumberField label="Roof area (sqm)" value={form.roofArea} onChange={(value) => updateField('roofArea', value)} />
               <Field label="Roof material">
                 <select value={form.roofMaterial} onChange={(event) => updateField('roofMaterial', event.target.value)} style={inputStyle}>
@@ -693,7 +759,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }
 
           <section style={sectionCardStyle}>
             <h2 style={{ marginTop: 0 }}>3. Crew and follow-up</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: formColumns, gap: 16, marginBottom: 18 }}>
               <NumberField label="Employees per job" value={form.employees} onChange={(value) => updateField('employees', value)} min={1} />
               <NumberField label="Markup %" value={form.markupPercent} onChange={(value) => updateField('markupPercent', value)} />
               <NumberField label="Deposit %" value={form.depositPercent} onChange={(value) => updateField('depositPercent', value)} />
@@ -709,7 +775,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }
               </Field>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
               <label style={{ display: 'flex', gap: 10, alignItems: 'center', background: '#f4f7ee', border: '1px solid #d8dfcb', borderRadius: 14, padding: '12px 14px', fontWeight: 600 }}>
                 <input type="checkbox" checked={form.downpipesRequired} onChange={(event) => updateField('downpipesRequired', event.target.checked)} />
                 Downpipes return trip
@@ -726,7 +792,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }
           </section>
         </div>
 
-        <div style={{ position: 'sticky', top: 20, display: 'grid', gap: 20 }}>
+        <div style={{ position: isTablet ? 'static' : 'sticky', top: 20, display: 'grid', gap: 20 }}>
           <section style={{ ...sectionCardStyle, background: '#23301c', color: '#f7f6ef' }}>
             <p style={{ margin: 0, textTransform: 'uppercase', letterSpacing: 1.5, fontSize: 12, color: '#c7d2bb' }}>
               Live quote
@@ -738,7 +804,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob }
                 <div style={{ fontSize: 13, color: '#5d694d', textTransform: 'uppercase' }}>Install days</div>
                 <div style={{ fontSize: 30, fontWeight: 800, color: '#203018' }}>{estimate.installDays}</div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div style={metricCardStyle}>
                   <div style={{ fontSize: 13, color: '#5d694d', textTransform: 'uppercase' }}>Deposit</div>
                   <div style={{ fontSize: 24, fontWeight: 800, color: '#203018' }}>{formatMoney(estimate.depositAmount)}</div>
@@ -828,10 +894,18 @@ function MaterialsPage({
   setDraftMaterial,
   addMaterial,
   removeMaterial,
-  updateMaterial
+  updateMaterial,
+  isMobile,
+  isTablet
 }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 0.85fr) minmax(0, 1.4fr)', gap: 24 }}>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: isTablet ? '1fr' : 'minmax(320px, 0.85fr) minmax(0, 1.4fr)',
+        gap: 24
+      }}
+    >
       <section style={sectionCardStyle}>
         <h2 style={{ marginTop: 0 }}>Add pricing item</h2>
         <div style={{ display: 'grid', gap: 16 }}>
@@ -886,14 +960,26 @@ function MaterialsPage({
                       {groupName}
                     </div>
                     {groupItems.map((item) => (
-                      <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 14, alignItems: 'center', borderRadius: 18, padding: 16, border: '1px solid #d7ddca', background: '#f8fbf5' }}>
+                      <div
+                        key={item.id}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto',
+                          gap: 14,
+                          alignItems: 'center',
+                          borderRadius: 18,
+                          padding: 16,
+                          border: '1px solid #d7ddca',
+                          background: '#f8fbf5'
+                        }}
+                      >
                         <div>
                           <input
                             value={item.name}
                             onChange={(event) => updateMaterial(category, item.id, 'name', event.target.value)}
                             style={{ ...inputStyle, fontWeight: 800, fontSize: 16, marginBottom: 8 }}
                           />
-                          <div style={{ display: 'grid', gridTemplateColumns: '120px 120px', gap: 10 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '120px 120px', gap: 10 }}>
                             <input
                               type="number"
                               value={item.price}
@@ -930,7 +1016,7 @@ function MaterialsPage({
   )
 }
 
-function CalendarPage({ jobs, calendarMonth, setCalendarMonth }) {
+function CalendarPage({ jobs, calendarMonth, setCalendarMonth, isMobile }) {
   const monthStart = startOfMonth(calendarMonth)
   const firstGridDate = addDays(monthStart, -monthStart.getDay())
   const calendarDays = Array.from({ length: 42 }, (_, index) => addDays(firstGridDate, index))
@@ -961,7 +1047,7 @@ function CalendarPage({ jobs, calendarMonth, setCalendarMonth }) {
             <h2 style={{ margin: 0 }}>Booking calendar</h2>
             <p style={{ margin: '6px 0 0', color: '#5c6a50' }}>Install work and 4-week follow-ups are both shown below.</p>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', width: isMobile ? '100%' : 'auto', justifyContent: isMobile ? 'space-between' : 'flex-start' }}>
             <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} style={{ ...inputStyle, width: 'auto', cursor: 'pointer', fontWeight: 800 }}>
               Previous
             </button>
@@ -972,33 +1058,52 @@ function CalendarPage({ jobs, calendarMonth, setCalendarMonth }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <div key={day} style={{ fontWeight: 800, color: '#5b684f', padding: '0 4px' }}>{day}</div>
-          ))}
-          {calendarDays.map((day) => {
-            const dayKey = toDateKey(day)
-            const dayEvents = eventsByDate[dayKey] || []
-            const isCurrentMonth = day.getMonth() === calendarMonth.getMonth()
-
-            return (
-              <div key={dayKey} style={{ minHeight: 148, borderRadius: 18, padding: 12, background: isCurrentMonth ? '#f8fbf5' : '#eef2e8', border: '1px solid #d7ddca', display: 'grid', alignContent: 'start', gap: 8 }}>
-                <div style={{ fontWeight: 800, color: isCurrentMonth ? '#24321d' : '#7a8570' }}>{day.getDate()}</div>
-                {dayEvents.length === 0 ? (
-                  <div style={{ color: '#9aa38f', fontSize: 13 }}>No booking</div>
-                ) : (
-                  dayEvents.map((event) => (
-                    <div key={`${dayKey}-${event.id}`} style={{ borderRadius: 12, padding: '8px 10px', background: event.type === 'Return' ? '#5d7a42' : '#23301c', color: '#f7f6ef', fontSize: 13, lineHeight: 1.4 }}>
-                      <div style={{ fontWeight: 800 }}>{event.title}</div>
-                      <div>{event.type}</div>
-                      <div>{event.detail}</div>
-                    </div>
-                  ))
-                )}
+        {isMobile ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {monthEvents.length === 0 ? (
+              <div style={{ borderRadius: 18, padding: 18, background: '#f6f8f1', border: '1px dashed #bcc8b1', color: '#5e6d53' }}>
+                Save jobs with a start date to see them listed here.
               </div>
-            )
-          })}
-        </div>
+            ) : (
+              monthEvents.map((event) => (
+                <div key={`mobile-${event.id}`} style={{ borderRadius: 18, padding: 16, background: '#f8fbf5', border: '1px solid #d7ddca', display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: 19, fontWeight: 800 }}>{event.title}</div>
+                  <div style={{ color: '#5c6a50' }}>{event.detail}</div>
+                  <div style={{ fontWeight: 700, color: '#334329' }}>{formatDate(event.startDate)}</div>
+                  <div style={{ color: '#415036' }}>{event.duration} day/s{event.suburb ? ` | ${event.suburb}` : ''}</div>
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <div key={day} style={{ fontWeight: 800, color: '#5b684f', padding: '0 4px' }}>{day}</div>
+            ))}
+            {calendarDays.map((day) => {
+              const dayKey = toDateKey(day)
+              const dayEvents = eventsByDate[dayKey] || []
+              const isCurrentMonth = day.getMonth() === calendarMonth.getMonth()
+
+              return (
+                <div key={dayKey} style={{ minHeight: 148, borderRadius: 18, padding: 12, background: isCurrentMonth ? '#f8fbf5' : '#eef2e8', border: '1px solid #d7ddca', display: 'grid', alignContent: 'start', gap: 8 }}>
+                  <div style={{ fontWeight: 800, color: isCurrentMonth ? '#24321d' : '#7a8570' }}>{day.getDate()}</div>
+                  {dayEvents.length === 0 ? (
+                    <div style={{ color: '#9aa38f', fontSize: 13 }}>No booking</div>
+                  ) : (
+                    dayEvents.map((event) => (
+                      <div key={`${dayKey}-${event.id}`} style={{ borderRadius: 12, padding: '8px 10px', background: event.type === 'Return' ? '#5d7a42' : '#23301c', color: '#f7f6ef', fontSize: 13, lineHeight: 1.4 }}>
+                        <div style={{ fontWeight: 800 }}>{event.title}</div>
+                        <div>{event.type}</div>
+                        <div>{event.detail}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
 
       <section style={sectionCardStyle}>
@@ -1017,7 +1122,7 @@ function CalendarPage({ jobs, calendarMonth, setCalendarMonth }) {
             </div>
           ) : (
             monthEvents.map((event) => (
-              <div key={`month-${event.id}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto', gap: 16, alignItems: 'center', borderRadius: 18, padding: 18, background: '#f8fbf5', border: '1px solid #d7ddca' }}>
+              <div key={`month-${event.id}`} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto auto', gap: 16, alignItems: 'center', borderRadius: 18, padding: 18, background: '#f8fbf5', border: '1px solid #d7ddca' }}>
                 <div>
                   <div style={{ fontSize: 20, fontWeight: 800 }}>{event.title}</div>
                   <div style={{ color: '#5c6a50' }}>{event.detail}{event.suburb ? ` | ${event.suburb}` : ''}</div>
@@ -1034,6 +1139,7 @@ function CalendarPage({ jobs, calendarMonth, setCalendarMonth }) {
 }
 
 export default function App() {
+  const { isMobile, isTablet } = useViewport()
   const [users, setUsers] = useState(() => readStoredUsers())
   const [currentUser, setCurrentUser] = useState(() => readStoredSession())
   const [authMode, setAuthMode] = useState('login')
@@ -1286,14 +1392,21 @@ export default function App() {
             return
           }
 
-          if (data.user) {
+          if (data.session?.user) {
             setCurrentUser({
-              id: data.user.id,
-              name: data.user.user_metadata?.full_name || name,
-              email: data.user.email || email
+              id: data.session.user.id,
+              name: data.session.user.user_metadata?.full_name || name,
+              email: data.session.user.email || email
             })
-            setAuthNotice('Account created. If email confirmation is enabled in Supabase, confirm your email before signing in on other devices.')
+            setAuthNotice('Account created and signed in.')
             setAuthForm({ name: '', email: '', password: '' })
+            return
+          }
+
+          if (data.user) {
+            setAuthMode('login')
+            setAuthNotice('Account created. Check your email if confirmation is enabled, then log in.')
+            setAuthForm({ name: '', email, password: '' })
           }
           return
         }
@@ -1415,10 +1528,19 @@ export default function App() {
             {authNotice}
           </div>
         ) : null}
-        <Header activePage={activePage} setActivePage={setActivePage} />
+        <Header activePage={activePage} setActivePage={setActivePage} isMobile={isMobile} />
 
         {activePage === 'estimator' ? (
-          <EstimatorPage form={form} estimate={estimate} jobs={jobs} materials={materials} updateField={updateField} saveJob={saveJob} />
+          <EstimatorPage
+            form={form}
+            estimate={estimate}
+            jobs={jobs}
+            materials={materials}
+            updateField={updateField}
+            saveJob={saveJob}
+            isMobile={isMobile}
+            isTablet={isTablet}
+          />
         ) : activePage === 'materials' ? (
           <MaterialsPage
             materials={materials}
@@ -1427,9 +1549,16 @@ export default function App() {
             addMaterial={addMaterial}
             removeMaterial={removeMaterial}
             updateMaterial={updateMaterial}
+            isMobile={isMobile}
+            isTablet={isTablet}
           />
         ) : (
-          <CalendarPage jobs={jobs} calendarMonth={calendarMonth} setCalendarMonth={setCalendarMonth} />
+          <CalendarPage
+            jobs={jobs}
+            calendarMonth={calendarMonth}
+            setCalendarMonth={setCalendarMonth}
+            isMobile={isMobile}
+          />
         )}
       </div>
     </div>
