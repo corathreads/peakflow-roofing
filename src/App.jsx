@@ -143,6 +143,7 @@ const metricCardStyle = {
 const AUTH_USERS_KEY = 'roofing-pipeline-users'
 const AUTH_SESSION_KEY = 'roofing-pipeline-session'
 const APP_STATE_PREFIX = 'roofing-pipeline-state'
+const TAKEOFF_STATE_PREFIX = 'roofing-pipeline-takeoff'
 
 function formatMoney(value) {
   return new Intl.NumberFormat('en-AU', {
@@ -214,6 +215,100 @@ function getJobStatusTone(status) {
   }
 }
 
+function distanceBetweenPoints(first, second) {
+  const deltaX = second.x - first.x
+  const deltaY = second.y - first.y
+  return Math.sqrt(deltaX * deltaX + deltaY * deltaY)
+}
+
+function polylineLength(points) {
+  if (!points || points.length < 2) {
+    return 0
+  }
+
+  return points.slice(1).reduce((total, point, index) => total + distanceBetweenPoints(points[index], point), 0)
+}
+
+function polygonArea(points) {
+  if (!points || points.length < 3) {
+    return 0
+  }
+
+  let area = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const next = points[(index + 1) % points.length]
+    area += current.x * next.y - next.x * current.y
+  }
+  return Math.abs(area / 2)
+}
+
+function toSvgPointString(points) {
+  return points.map((point) => `${point.x},${point.y}`).join(' ')
+}
+
+function getTakeoffToolMeta(tool) {
+  switch (tool) {
+    case 'scale':
+      return { type: 'line', label: 'Scale line', color: '#f59e0b' }
+    case 'area':
+      return { type: 'area', label: 'Roof area', color: '#0f766e' }
+    case 'gutter':
+      return { type: 'line', label: 'Gutter', color: '#2563eb' }
+    case 'fascia':
+      return { type: 'line', label: 'Fascia', color: '#7c3aed' }
+    case 'ridge':
+      return { type: 'line', label: 'Ridge', color: '#ea580c' }
+    case 'valley':
+      return { type: 'line', label: 'Valley', color: '#dc2626' }
+    case 'flashing':
+      return { type: 'line', label: 'Flashing', color: '#0891b2' }
+    default:
+      return { type: 'line', label: 'Measure', color: '#0f172a' }
+  }
+}
+
+function buildTakeoffSummary(takeoff) {
+  const scaleFactor =
+    takeoff.scalePixels > 0 && takeoff.scaleLengthMetres > 0
+      ? takeoff.scaleLengthMetres / takeoff.scalePixels
+      : 0
+
+  const roofArea = takeoff.areas.reduce(
+    (sum, area) => sum + polygonArea(area.points) * scaleFactor * scaleFactor,
+    0
+  )
+
+  const totals = takeoff.lines.reduce(
+    (sum, line) => {
+      const metres = polylineLength(line.points) * scaleFactor
+      return {
+        ...sum,
+        [line.type]: sum[line.type] + metres
+      }
+    },
+    { gutter: 0, fascia: 0, ridge: 0, valley: 0, flashing: 0 }
+  )
+
+  const battenSpacingMetres = takeoff.battenSpacingMm / 1000
+  const battensLm = battenSpacingMetres > 0 ? roofArea / battenSpacingMetres : 0
+  const adjustedRoofArea = roofArea * (1 + takeoff.wastePercent / 100)
+  const sheetCount =
+    takeoff.sheetCoverageSqm > 0 ? Math.ceil(adjustedRoofArea / takeoff.sheetCoverageSqm) : 0
+
+  return {
+    roofArea,
+    gutterLength: totals.gutter,
+    fasciaLength: totals.fascia,
+    ridgeLength: totals.ridge,
+    valleyLength: totals.valley,
+    flashingLength: totals.flashing,
+    battensLm,
+    sheetCount,
+    wasteAdjustedArea: adjustedRoofArea
+  }
+}
+
 function summarisePipeline(jobs, calendarMonth) {
   const sortedJobs = sortJobsByStartDate(jobs)
   const totalQuoted = jobs.reduce((sum, job) => sum + (job.estimate?.sellPrice || 0), 0)
@@ -278,6 +373,27 @@ function writeLocalAppState(userId, data) {
   }
 
   window.localStorage.setItem(`${APP_STATE_PREFIX}-${userId}`, JSON.stringify(data))
+}
+
+function readLocalTakeoffState(userId) {
+  if (typeof window === 'undefined' || !userId) {
+    return null
+  }
+
+  try {
+    const raw = window.localStorage.getItem(`${TAKEOFF_STATE_PREFIX}-${userId}`)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function writeLocalTakeoffState(userId, data) {
+  if (typeof window === 'undefined' || !userId) {
+    return
+  }
+
+  window.localStorage.setItem(`${TAKEOFF_STATE_PREFIX}-${userId}`, JSON.stringify(data))
 }
 
 function createEmptyMaterial() {
@@ -523,6 +639,362 @@ function OverviewBar({ jobs, calendarMonth, isMobile }) {
   )
 }
 
+function createEmptyTakeoff() {
+  return {
+    fileName: '',
+    imageSrc: '',
+    imageWidth: 1600,
+    imageHeight: 900,
+    selectedTool: 'scale',
+    draftPoints: [],
+    scalePixels: 0,
+    scaleLengthMetres: 6,
+    areas: [],
+    lines: [],
+    wastePercent: 10,
+    battenSpacingMm: 900,
+    sheetCoverageSqm: 0.76,
+    notice: 'Upload a roof plan image, set scale, then trace roof areas and lineal items.'
+  }
+}
+
+function TakeoffPage({
+  takeoff,
+  setTakeoff,
+  applyTakeoffToEstimator,
+  clearTakeoff,
+  isMobile,
+  isTablet
+}) {
+  const summary = useMemo(() => buildTakeoffSummary(takeoff), [takeoff])
+
+  const addPoint = (event) => {
+    if (!takeoff.imageSrc) {
+      return
+    }
+
+    const svgRect = event.currentTarget.getBoundingClientRect()
+    const x = ((event.clientX - svgRect.left) / svgRect.width) * takeoff.imageWidth
+    const y = ((event.clientY - svgRect.top) / svgRect.height) * takeoff.imageHeight
+
+    setTakeoff((current) => ({
+      ...current,
+      draftPoints: [...current.draftPoints, { x, y }]
+    }))
+  }
+
+  const completeCurrentMeasurement = () => {
+    const toolMeta = getTakeoffToolMeta(takeoff.selectedTool)
+
+    if (takeoff.selectedTool === 'scale') {
+      if (takeoff.draftPoints.length !== 2) {
+        setTakeoff((current) => ({
+          ...current,
+          notice: 'Add exactly two points to set the scale line.'
+        }))
+        return
+      }
+
+      setTakeoff((current) => ({
+        ...current,
+        scalePixels: polylineLength(current.draftPoints),
+        draftPoints: [],
+        notice: `Scale locked to ${current.scaleLengthMetres} m.`
+      }))
+      return
+    }
+
+    if (toolMeta.type === 'area' && takeoff.draftPoints.length < 3) {
+      setTakeoff((current) => ({
+        ...current,
+        notice: 'Roof areas need at least three points.'
+      }))
+      return
+    }
+
+    if (toolMeta.type === 'line' && takeoff.draftPoints.length < 2) {
+      setTakeoff((current) => ({
+        ...current,
+        notice: 'Line measurements need at least two points.'
+      }))
+      return
+    }
+
+    setTakeoff((current) => {
+      const item = {
+        id: `${current.selectedTool}-${Date.now()}`,
+        type: current.selectedTool,
+        label: toolMeta.label,
+        points: current.draftPoints
+      }
+
+      return toolMeta.type === 'area'
+        ? {
+            ...current,
+            areas: [...current.areas, item],
+            draftPoints: [],
+            notice: `${toolMeta.label} saved.`
+          }
+        : {
+            ...current,
+            lines: [...current.lines, item],
+            draftPoints: [],
+            notice: `${toolMeta.label} saved.`
+          }
+    })
+  }
+
+  const handleFileChange = (event) => {
+    const [file] = event.target.files || []
+    if (!file) {
+      return
+    }
+
+    if (file.type === 'application/pdf') {
+      setTakeoff((current) => ({
+        ...current,
+        notice: 'PDF support is the next step. For now, export the plan page to PNG or JPG and upload that image.'
+      }))
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setTakeoff((current) => ({
+        ...current,
+        notice: 'Upload a PNG or JPG roof plan image.'
+      }))
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const image = new Image()
+      image.onload = () => {
+        setTakeoff((current) => ({
+          ...current,
+          fileName: file.name,
+          imageSrc: String(reader.result),
+          imageWidth: image.width,
+          imageHeight: image.height,
+          draftPoints: [],
+          scalePixels: 0,
+          areas: [],
+          lines: [],
+          notice: 'Plan uploaded. Set the scale first using a known dimension.'
+        }))
+      }
+      image.src = String(reader.result)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const toolButtons = [
+    { id: 'scale', label: 'Set scale' },
+    { id: 'area', label: 'Roof area' },
+    { id: 'gutter', label: 'Gutter' },
+    { id: 'fascia', label: 'Fascia' },
+    { id: 'ridge', label: 'Ridge' },
+    { id: 'valley', label: 'Valley' },
+    { id: 'flashing', label: 'Flashing' }
+  ]
+
+  const activeToolMeta = getTakeoffToolMeta(takeoff.selectedTool)
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: isTablet ? '1fr' : 'minmax(0, 1.3fr) minmax(340px, 0.9fr)',
+        gap: 24,
+        alignItems: 'start'
+      }}
+    >
+      <section style={sectionCardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>Upload plans and trace your takeoff</h2>
+            <p style={{ margin: '6px 0 0', color: '#5c6a50' }}>
+              Upload a roof plan image, calibrate scale, then trace the roof and lineal items.
+            </p>
+          </div>
+          <div style={{ padding: '8px 12px', borderRadius: 999, background: '#edfdf8', border: '1px solid #99f6e4', color: '#0f766e', fontWeight: 700 }}>
+            {takeoff.scalePixels > 0 ? 'Scale set' : 'Scale not set'}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          {toolButtons.map((tool) => (
+            <button
+              key={tool.id}
+              onClick={() =>
+                setTakeoff((current) => ({
+                  ...current,
+                  selectedTool: tool.id,
+                  draftPoints: [],
+                  notice: `Tracing ${tool.label.toLowerCase()}.`
+                }))
+              }
+              style={{
+                border: 'none',
+                borderRadius: 14,
+                padding: '10px 14px',
+                background: takeoff.selectedTool === tool.id ? '#0f172a' : '#eff6ff',
+                color: takeoff.selectedTool === tool.id ? '#f8fafc' : '#0f172a',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              {tool.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ borderRadius: 22, overflow: 'hidden', border: '1px solid #d6e4ea', background: '#e2e8f0' }}>
+          {takeoff.imageSrc ? (
+            <svg
+              viewBox={`0 0 ${takeoff.imageWidth} ${takeoff.imageHeight}`}
+              onClick={addPoint}
+              style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair', background: '#0f172a' }}
+            >
+              <image href={takeoff.imageSrc} width={takeoff.imageWidth} height={takeoff.imageHeight} preserveAspectRatio="xMidYMid meet" />
+              {takeoff.areas.map((area) => {
+                const meta = getTakeoffToolMeta(area.type)
+                return (
+                  <polygon
+                    key={area.id}
+                    points={toSvgPointString(area.points)}
+                    fill={meta.color}
+                    fillOpacity="0.18"
+                    stroke={meta.color}
+                    strokeWidth="4"
+                  />
+                )
+              })}
+              {takeoff.lines.map((line) => {
+                const meta = getTakeoffToolMeta(line.type)
+                return (
+                  <polyline
+                    key={line.id}
+                    points={toSvgPointString(line.points)}
+                    fill="none"
+                    stroke={meta.color}
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )
+              })}
+              {takeoff.scalePixels > 0 ? (
+                <text x="24" y="40" fill="#f8fafc" fontSize="30" fontWeight="700">
+                  Scale: {takeoff.scaleLengthMetres}m
+                </text>
+              ) : null}
+              {takeoff.draftPoints.length > 0 ? (
+                activeToolMeta.type === 'area' ? (
+                  <polygon
+                    points={toSvgPointString(takeoff.draftPoints)}
+                    fill={activeToolMeta.color}
+                    fillOpacity="0.12"
+                    stroke={activeToolMeta.color}
+                    strokeWidth="4"
+                    strokeDasharray="12 10"
+                  />
+                ) : (
+                  <polyline
+                    points={toSvgPointString(takeoff.draftPoints)}
+                    fill="none"
+                    stroke={activeToolMeta.color}
+                    strokeWidth="6"
+                    strokeDasharray="14 10"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )
+              ) : null}
+              {takeoff.draftPoints.map((point, index) => (
+                <circle key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="9" fill={activeToolMeta.color} />
+              ))}
+            </svg>
+          ) : (
+            <div style={{ padding: isMobile ? 24 : 48, display: 'grid', gap: 16, justifyItems: 'start', background: 'linear-gradient(135deg, #dbeafe 0%, #ecfeff 100%)' }}>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>Drop in a roof plan image to start the takeoff.</div>
+              <div style={{ maxWidth: 620, lineHeight: 1.6, color: '#334155' }}>
+                Export the roof plan page from PDF as PNG or JPG, then calibrate a known dimension and trace the plan.
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+          <button onClick={completeCurrentMeasurement} style={{ border: 'none', borderRadius: 14, padding: '12px 16px', background: '#0f766e', color: '#f8fafc', fontWeight: 800, cursor: 'pointer' }}>
+            Complete current trace
+          </button>
+          <button onClick={() => setTakeoff((current) => ({ ...current, draftPoints: [], notice: 'Current trace cleared.' }))} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '12px 16px', background: '#ffffff', color: '#0f172a', fontWeight: 800, cursor: 'pointer' }}>
+            Clear trace
+          </button>
+          <button onClick={clearTakeoff} style={{ border: '1px solid #fecaca', borderRadius: 14, padding: '12px 16px', background: '#fff1f2', color: '#be123c', fontWeight: 800, cursor: 'pointer' }}>
+            Reset takeoff
+          </button>
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gap: 20, position: isTablet ? 'static' : 'sticky', top: 20 }}>
+        <section style={sectionCardStyle}>
+          <h2 style={{ marginTop: 0 }}>Plan setup</h2>
+          <div style={{ display: 'grid', gap: 14 }}>
+            <Field label="Plan image">
+              <input type="file" accept="image/*,.pdf" onChange={handleFileChange} style={inputStyle} />
+            </Field>
+            <Field label="Known scale length (metres)" hint="Example: trace a wall noted as 6m, then enter 6 here.">
+              <input type="number" min="0.1" step="0.1" value={takeoff.scaleLengthMetres} onChange={(event) => setTakeoff((current) => ({ ...current, scaleLengthMetres: Number(event.target.value) }))} style={inputStyle} />
+            </Field>
+            <Field label="Waste allowance %" hint="Used for sheet estimate only.">
+              <input type="number" min="0" step="1" value={takeoff.wastePercent} onChange={(event) => setTakeoff((current) => ({ ...current, wastePercent: Number(event.target.value) }))} style={inputStyle} />
+            </Field>
+            <Field label="Batten spacing (mm)">
+              <input type="number" min="100" step="50" value={takeoff.battenSpacingMm} onChange={(event) => setTakeoff((current) => ({ ...current, battenSpacingMm: Number(event.target.value) }))} style={inputStyle} />
+            </Field>
+            <Field label="Sheet coverage (sqm per sheet)">
+              <input type="number" min="0.1" step="0.01" value={takeoff.sheetCoverageSqm} onChange={(event) => setTakeoff((current) => ({ ...current, sheetCoverageSqm: Number(event.target.value) }))} style={inputStyle} />
+            </Field>
+            <div style={{ borderRadius: 18, padding: '14px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', lineHeight: 1.5 }}>
+              {takeoff.notice}
+            </div>
+          </div>
+        </section>
+
+        <section style={sectionCardStyle}>
+          <h2 style={{ marginTop: 0 }}>Measured totals</h2>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div>Roof area: <strong>{summary.roofArea.toFixed(1)} sqm</strong></div>
+            <div>Gutter: <strong>{summary.gutterLength.toFixed(1)} lm</strong></div>
+            <div>Fascia: <strong>{summary.fasciaLength.toFixed(1)} lm</strong></div>
+            <div>Ridge: <strong>{summary.ridgeLength.toFixed(1)} lm</strong></div>
+            <div>Valley: <strong>{summary.valleyLength.toFixed(1)} lm</strong></div>
+            <div>Flashing / parapet: <strong>{summary.flashingLength.toFixed(1)} lm</strong></div>
+            <div>Battens estimate: <strong>{summary.battensLm.toFixed(1)} lm</strong></div>
+            <div>Waste-adjusted roof area: <strong>{summary.wasteAdjustedArea.toFixed(1)} sqm</strong></div>
+            <div>Sheet estimate: <strong>{summary.sheetCount}</strong></div>
+          </div>
+        </section>
+
+        <section style={sectionCardStyle}>
+          <h2 style={{ marginTop: 0 }}>Estimator handoff</h2>
+          <p style={{ margin: '0 0 14px', color: '#5c6a50', lineHeight: 1.6 }}>
+            Push the measured roof area, gutter, fascia, and flashing straight into the quote builder.
+          </p>
+          <button onClick={() => applyTakeoffToEstimator(summary)} style={{ width: '100%', border: 'none', borderRadius: 16, padding: '14px 18px', background: '#0f172a', color: '#f8fafc', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>
+            Send takeoff to estimator
+          </button>
+          <div style={{ marginTop: 14, color: '#64748b', lineHeight: 1.5 }}>
+            Saved plan: {takeoff.fileName || 'No plan uploaded yet'}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
 function useViewport() {
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === 'undefined' ? 1280 : window.innerWidth
@@ -559,6 +1031,10 @@ function Header({ activePage, setActivePage, isMobile }) {
     calendar: {
       title: 'See installs and return trips in one calendar.',
       text: 'Main installs and the 4-week downpipe or parapet follow-up bookings are laid out automatically.'
+    },
+    takeoff: {
+      title: 'Upload a plan and trace out the roof takeoff.',
+      text: 'Calibrate scale from the plan, measure roof area and lineal items, then push those quantities into your quote.'
     }
   }
 
@@ -588,7 +1064,7 @@ function Header({ activePage, setActivePage, isMobile }) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))',
           width: isMobile ? '100%' : 'auto',
           background: 'rgba(255,255,255,0.72)',
           border: '1px solid #d7e7ef',
@@ -601,7 +1077,8 @@ function Header({ activePage, setActivePage, isMobile }) {
         {[
           { id: 'estimator', label: 'Job Estimator' },
           { id: 'materials', label: 'Materials Pricing' },
-          { id: 'calendar', label: 'Booking Calendar' }
+          { id: 'calendar', label: 'Booking Calendar' },
+          { id: 'takeoff', label: 'Plan Takeoff' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1307,6 +1784,7 @@ export default function App() {
   const [materials, setMaterials] = useState(DEFAULT_MATERIALS)
   const [draftMaterial, setDraftMaterial] = useState(createEmptyMaterial())
   const [form, setForm] = useState(DEFAULT_FORM)
+  const [takeoff, setTakeoff] = useState(createEmptyTakeoff())
   const [calendarMonth, setCalendarMonth] = useState(new Date('2026-04-01T00:00:00'))
   const [dataReady, setDataReady] = useState(false)
   const [formError, setFormError] = useState('')
@@ -1388,6 +1866,7 @@ export default function App() {
       if (!currentUser) {
         setJobs([])
         setMaterials(DEFAULT_MATERIALS)
+        setTakeoff(createEmptyTakeoff())
         setDataReady(false)
         return
       }
@@ -1414,9 +1893,11 @@ export default function App() {
       }
 
       const localState = readLocalAppState(currentUser.id)
+      const localTakeoff = readLocalTakeoffState(currentUser.id)
       if (!cancelled) {
         setMaterials(localState?.materials || DEFAULT_MATERIALS)
         setJobs(localState?.jobs || [])
+        setTakeoff(localTakeoff || createEmptyTakeoff())
         setDataReady(true)
       }
     }
@@ -1445,6 +1926,7 @@ export default function App() {
       }
 
       writeLocalAppState(currentUser.id, { materials, jobs })
+      writeLocalTakeoffState(currentUser.id, takeoff)
 
       if (hasSupabaseConfig && supabase) {
         const { error } = await supabase.from('app_snapshots').upsert(snapshot)
@@ -1463,7 +1945,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [currentUser, dataReady, materials, jobs])
+  }, [currentUser, dataReady, materials, jobs, takeoff])
 
   const estimate = useMemo(() => estimateJob(form, materials), [form, materials])
   const sortedJobs = useMemo(() => sortJobsByStartDate(jobs), [jobs])
@@ -1527,6 +2009,26 @@ export default function App() {
     if (editingJobId === jobId) {
       resetForm()
     }
+  }
+
+  const applyTakeoffToEstimator = (summary) => {
+    setForm((current) => ({
+      ...current,
+      roofArea: Number(summary.roofArea.toFixed(1)),
+      gutterLength: Number(summary.gutterLength.toFixed(1)),
+      fasciaLength: Number(summary.fasciaLength.toFixed(1)),
+      flashingLength: Number(summary.flashingLength.toFixed(1))
+    }))
+    setActivePage('estimator')
+    setFormError('')
+    setTakeoff((current) => ({
+      ...current,
+      notice: 'Takeoff quantities sent to the estimator.'
+    }))
+  }
+
+  const clearTakeoff = () => {
+    setTakeoff(createEmptyTakeoff())
   }
 
   const addMaterial = () => {
@@ -1762,6 +2264,15 @@ export default function App() {
             addMaterial={addMaterial}
             removeMaterial={removeMaterial}
             updateMaterial={updateMaterial}
+            isMobile={isMobile}
+            isTablet={isTablet}
+          />
+        ) : activePage === 'takeoff' ? (
+          <TakeoffPage
+            takeoff={takeoff}
+            setTakeoff={setTakeoff}
+            applyTakeoffToEstimator={applyTakeoffToEstimator}
+            clearTakeoff={clearTakeoff}
             isMobile={isMobile}
             isTablet={isTablet}
           />
