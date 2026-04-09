@@ -112,6 +112,8 @@ const CATEGORY_LABELS = {
   extras: 'Extras'
 }
 
+const STATUS_OPTIONS = ['Lead', 'Quoted', 'Booked', 'In Progress', 'Complete']
+
 const inputStyle = {
   width: '100%',
   padding: '14px 16px',
@@ -183,6 +185,52 @@ function monthLabel(date) {
     month: 'long',
     year: 'numeric'
   }).format(date)
+}
+
+function isSameMonth(dateValue, monthDate) {
+  const date = new Date(`${dateValue}T00:00:00`)
+  return date.getFullYear() === monthDate.getFullYear() && date.getMonth() === monthDate.getMonth()
+}
+
+function sortJobsByStartDate(jobs) {
+  return [...jobs].sort(
+    (first, second) =>
+      new Date(`${first.bookedStartDate}T00:00:00`) - new Date(`${second.bookedStartDate}T00:00:00`)
+  )
+}
+
+function getJobStatusTone(status) {
+  switch (status) {
+    case 'Booked':
+      return { background: '#d9f99d', color: '#365314' }
+    case 'In Progress':
+      return { background: '#bfdbfe', color: '#1d4ed8' }
+    case 'Complete':
+      return { background: '#dcfce7', color: '#166534' }
+    case 'Lead':
+      return { background: '#fef3c7', color: '#92400e' }
+    default:
+      return { background: '#e4edd8', color: '#334329' }
+  }
+}
+
+function summarisePipeline(jobs, calendarMonth) {
+  const sortedJobs = sortJobsByStartDate(jobs)
+  const totalQuoted = jobs.reduce((sum, job) => sum + (job.estimate?.sellPrice || 0), 0)
+  const bookedJobs = jobs.filter((job) => job.status === 'Booked' || job.status === 'In Progress')
+  const upcomingJob = sortedJobs.find(
+    (job) => new Date(`${job.bookedStartDate}T00:00:00`) >= new Date(new Date().toDateString())
+  )
+  const monthJobs = jobs.filter((job) => isSameMonth(job.bookedStartDate, calendarMonth))
+  const returnVisits = jobs.reduce((sum, job) => sum + (job.estimate?.followUpDays > 0 ? 1 : 0), 0)
+
+  return {
+    totalQuoted,
+    bookedCount: bookedJobs.length,
+    monthRevenue: monthJobs.reduce((sum, job) => sum + (job.estimate?.sellPrice || 0), 0),
+    returnVisits,
+    upcomingJob
+  }
 }
 
 function readStoredUsers() {
@@ -392,6 +440,86 @@ function NumberField({ label, value, onChange, hint, min = 0, step = 1 }) {
         style={inputStyle}
       />
     </Field>
+  )
+}
+
+function MetricTile({ label, value, caption, tone = 'light' }) {
+  const tones = {
+    light: {
+      background: 'linear-gradient(145deg, #ecfeff 0%, #eff6ff 100%)',
+      border: '1px solid #d4e5ee',
+      color: '#0f172a',
+      accent: '#0f766e'
+    },
+    dark: {
+      background: 'linear-gradient(145deg, rgba(15,23,42,0.96) 0%, rgba(8,145,178,0.94) 100%)',
+      border: '1px solid rgba(125,211,252,0.24)',
+      color: '#f8fafc',
+      accent: '#67e8f9'
+    }
+  }
+
+  const palette = tones[tone]
+
+  return (
+    <div
+      style={{
+        background: palette.background,
+        borderRadius: 22,
+        padding: 18,
+        border: palette.border,
+        color: palette.color
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, color: palette.accent }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800 }}>{value}</div>
+      {caption ? <div style={{ marginTop: 8, lineHeight: 1.5, opacity: 0.82 }}>{caption}</div> : null}
+    </div>
+  )
+}
+
+function OverviewBar({ jobs, calendarMonth, isMobile }) {
+  const summary = summarisePipeline(jobs, calendarMonth)
+
+  return (
+    <section
+      style={{
+        ...sectionCardStyle,
+        marginBottom: 16,
+        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.97) 0%, rgba(12, 74, 110, 0.95) 55%, rgba(8, 145, 178, 0.92) 100%)',
+        color: '#f8fafc',
+        overflow: 'hidden'
+      }}
+    >
+      <div style={{ display: 'grid', gap: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ textTransform: 'uppercase', letterSpacing: 1.8, fontSize: 12, color: '#a5f3fc', fontWeight: 800 }}>
+              Business Snapshot
+            </div>
+            <h2 style={{ margin: '8px 0 10px', fontSize: isMobile ? 28 : 34 }}>
+              Keep quoting, bookings, and follow-ups in one run sheet.
+            </h2>
+            <p style={{ margin: 0, maxWidth: 720, lineHeight: 1.6, color: '#d9f7ff' }}>
+              This month is tracking {formatMoney(summary.monthRevenue)} across scheduled starts, with
+              {` ${summary.returnVisits} `}jobs already earmarked for a return visit.
+            </p>
+          </div>
+          <div style={{ padding: '10px 14px', borderRadius: 999, background: 'rgba(255,255,255,0.12)', fontWeight: 700 }}>
+            {jobs.length} jobs in pipeline
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+          <MetricTile label="Quoted Value" value={formatMoney(summary.totalQuoted)} caption="Current pipeline total" tone="dark" />
+          <MetricTile label="Booked Jobs" value={`${summary.bookedCount}`} caption="Booked or actively underway" tone="dark" />
+          <MetricTile label="Next Install" value={summary.upcomingJob ? formatDate(summary.upcomingJob.bookedStartDate) : 'Not booked'} caption={summary.upcomingJob ? summary.upcomingJob.jobName : 'No future jobs scheduled yet'} tone="dark" />
+          <MetricTile label="Return Visits" value={`${summary.returnVisits}`} caption="Jobs with a follow-up already planned" tone="dark" />
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -666,7 +794,21 @@ function AuthPage({ authMode, setAuthMode, authForm, setAuthForm, authError, aut
   )
 }
 
-function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, isMobile, isTablet }) {
+function EstimatorPage({
+  form,
+  estimate,
+  jobs,
+  materials,
+  updateField,
+  saveJob,
+  loadJobIntoForm,
+  deleteJob,
+  resetForm,
+  formError,
+  saveLabel,
+  isMobile,
+  isTablet
+}) {
   const formColumns = isMobile ? '1fr' : 'repeat(auto-fit, minmax(220px, 1fr))'
 
   return (
@@ -697,11 +839,9 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, 
               </Field>
               <Field label="Pipeline status">
                 <select value={form.status} onChange={(event) => updateField('status', event.target.value)} style={inputStyle}>
-                  <option>Lead</option>
-                  <option>Quoted</option>
-                  <option>Booked</option>
-                  <option>In Progress</option>
-                  <option>Complete</option>
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status}>{status}</option>
+                  ))}
                 </select>
               </Field>
               <NumberField
@@ -789,6 +929,11 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, 
             <Field label="Notes">
               <textarea value={form.notes} onChange={(event) => updateField('notes', event.target.value)} rows={4} placeholder="Access, scaffold, supplier notes..." style={{ ...inputStyle, resize: 'vertical' }} />
             </Field>
+            {formError ? (
+              <div style={{ marginTop: 14, borderRadius: 16, padding: '14px 16px', background: '#fff7ed', border: '1px solid #fdba74', color: '#9a3412', fontWeight: 700 }}>
+                {formError}
+              </div>
+            ) : null}
           </section>
         </div>
 
@@ -826,7 +971,10 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, 
             </div>
 
             <button onClick={saveJob} style={{ marginTop: 20, width: '100%', border: 'none', borderRadius: 16, padding: '14px 18px', background: '#f4d676', color: '#2c2a1c', fontWeight: 800, fontSize: 16, cursor: 'pointer' }}>
-              Save to pipeline
+              {saveLabel}
+            </button>
+            <button onClick={resetForm} style={{ marginTop: 12, width: '100%', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 16, padding: '13px 18px', background: 'rgba(255,255,255,0.08)', color: '#f8fafc', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
+              Reset estimator
             </button>
           </section>
 
@@ -867,7 +1015,7 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, 
                       {job.suburb ? ` | ${job.suburb}` : ''}
                     </div>
                   </div>
-                  <div style={{ padding: '6px 10px', borderRadius: 999, background: '#e4edd8', color: '#334329', fontWeight: 700, fontSize: 13 }}>
+                  <div style={{ ...getJobStatusTone(job.status), padding: '6px 10px', borderRadius: 999, fontWeight: 700, fontSize: 13 }}>
                     {job.status}
                   </div>
                 </div>
@@ -878,6 +1026,14 @@ function EstimatorPage({ form, estimate, jobs, materials, updateField, saveJob, 
                   <div>Install days: {job.estimate.installDays}</div>
                   <div>Follow-up: {job.estimate.followUpDate ? formatDate(job.estimate.followUpDate) : 'Not required'}</div>
                   <div>Scope: {job.roofArea} sqm roof, {job.gutterLength} lm gutter, {job.fasciaLength} lm fascia</div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+                  <button onClick={() => loadJobIntoForm(job)} style={{ border: 'none', borderRadius: 14, padding: '10px 14px', background: '#0f766e', color: '#f8fafc', fontWeight: 800, cursor: 'pointer' }}>
+                    Load into estimator
+                  </button>
+                  <button onClick={() => deleteJob(job.id)} style={{ border: '1px solid #fecaca', borderRadius: 14, padding: '10px 14px', background: '#fff1f2', color: '#be123c', fontWeight: 800, cursor: 'pointer' }}>
+                    Delete job
+                  </button>
                 </div>
               </article>
             ))
@@ -1153,6 +1309,9 @@ export default function App() {
   const [form, setForm] = useState(DEFAULT_FORM)
   const [calendarMonth, setCalendarMonth] = useState(new Date('2026-04-01T00:00:00'))
   const [dataReady, setDataReady] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [editingJobId, setEditingJobId] = useState(null)
+  const [syncNotice, setSyncNotice] = useState('')
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1291,7 +1450,11 @@ export default function App() {
         const { error } = await supabase.from('app_snapshots').upsert(snapshot)
         if (!cancelled && error) {
           setAuthNotice('Cloud sync is not ready yet. Your latest changes are still stored in this browser.')
+        } else if (!cancelled) {
+          setSyncNotice(`Saved ${new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit' }).format(new Date())}`)
         }
+      } else if (!cancelled) {
+        setSyncNotice('Saved in this browser')
       }
     }
 
@@ -1303,20 +1466,30 @@ export default function App() {
   }, [currentUser, dataReady, materials, jobs])
 
   const estimate = useMemo(() => estimateJob(form, materials), [form, materials])
+  const sortedJobs = useMemo(() => sortJobsByStartDate(jobs), [jobs])
 
   const updateField = (key, value) => {
+    if (formError) {
+      setFormError('')
+    }
     setForm((current) => ({ ...current, [key]: value }))
   }
 
   const saveJob = () => {
     if (!form.jobName.trim()) {
+      setFormError('Add a job name so the quote can be saved to the pipeline.')
       return
     }
 
-    setJobs((current) => [
-      { ...form, id: `${Date.now()}`, estimate: estimateJob(form, materials) },
-      ...current
-    ])
+    const savedJob = { ...form, id: editingJobId || `${Date.now()}`, estimate: estimateJob(form, materials) }
+
+    setJobs((current) => {
+      if (editingJobId) {
+        return current.map((job) => (job.id === editingJobId ? savedJob : job))
+      }
+
+      return [savedJob, ...current]
+    })
 
     setForm((current) => ({
       ...DEFAULT_FORM,
@@ -1325,6 +1498,35 @@ export default function App() {
       gutterType: current.gutterType,
       fasciaType: current.fasciaType
     }))
+    setEditingJobId(null)
+    setFormError('')
+  }
+
+  const resetForm = () => {
+    setForm((current) => ({
+      ...DEFAULT_FORM,
+      bookedStartDate: current.bookedStartDate,
+      roofMaterial: current.roofMaterial,
+      gutterType: current.gutterType,
+      fasciaType: current.fasciaType
+    }))
+    setEditingJobId(null)
+    setFormError('')
+  }
+
+  const loadJobIntoForm = (job) => {
+    const { estimate: _estimate, ...jobForm } = job
+    setForm(jobForm)
+    setEditingJobId(job.id)
+    setActivePage('estimator')
+    setFormError('')
+  }
+
+  const deleteJob = (jobId) => {
+    setJobs((current) => current.filter((job) => job.id !== jobId))
+    if (editingJobId === jobId) {
+      resetForm()
+    }
   }
 
   const addMaterial = () => {
@@ -1528,16 +1730,27 @@ export default function App() {
             {authNotice}
           </div>
         ) : null}
+        <OverviewBar jobs={jobs} calendarMonth={calendarMonth} isMobile={isMobile} />
+        {syncNotice ? (
+          <div style={{ marginBottom: 16, color: '#5f6f61', fontWeight: 700 }}>
+            {syncNotice}
+          </div>
+        ) : null}
         <Header activePage={activePage} setActivePage={setActivePage} isMobile={isMobile} />
 
         {activePage === 'estimator' ? (
           <EstimatorPage
             form={form}
             estimate={estimate}
-            jobs={jobs}
+            jobs={sortedJobs}
             materials={materials}
             updateField={updateField}
             saveJob={saveJob}
+            loadJobIntoForm={loadJobIntoForm}
+            deleteJob={deleteJob}
+            resetForm={resetForm}
+            formError={formError}
+            saveLabel={editingJobId ? 'Update job' : 'Save to pipeline'}
             isMobile={isMobile}
             isTablet={isTablet}
           />
