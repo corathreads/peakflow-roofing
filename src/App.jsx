@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { hasSupabaseConfig, supabase } from './supabaseClient'
 
 const DEFAULT_MATERIALS = {
@@ -709,9 +709,12 @@ function OverviewBar({ jobs, calendarMonth, isMobile }) {
 function createEmptyTakeoff() {
   return {
     fileName: '',
+    sourceType: '',
     imageSrc: '',
     imageWidth: 1600,
     imageHeight: 900,
+    pdfPageNumber: 1,
+    pdfPageCount: 0,
     selectedTool: 'scale',
     draftPoints: [],
     scalePixels: 0,
@@ -721,6 +724,7 @@ function createEmptyTakeoff() {
     wastePercent: 10,
     battenSpacingMm: 900,
     sheetCoverageSqm: 0.76,
+    zoom: 1,
     notice: 'Upload a roof plan image, set scale, then trace roof areas and lineal items.'
   }
 }
@@ -733,7 +737,40 @@ function TakeoffPage({
   isMobile,
   isTablet
 }) {
+  const pdfDocumentRef = useRef(null)
   const summary = useMemo(() => buildTakeoffSummary(takeoff), [takeoff])
+  const viewWidth = takeoff.imageWidth / Math.max(takeoff.zoom || 1, 1)
+  const viewHeight = takeoff.imageHeight / Math.max(takeoff.zoom || 1, 1)
+
+  const renderPdfPage = async (pageNumber, pdfDocument = pdfDocumentRef.current) => {
+    if (!pdfDocument) {
+      return
+    }
+
+    const page = await pdfDocument.getPage(pageNumber)
+    const viewport = page.getViewport({ scale: 2 })
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+
+    await page.render({ canvasContext: context, viewport }).promise
+
+    setTakeoff((current) => ({
+      ...current,
+      imageSrc: canvas.toDataURL('image/png'),
+      imageWidth: viewport.width,
+      imageHeight: viewport.height,
+      pdfPageNumber: pageNumber,
+      notice: `PDF page ${pageNumber} ready for takeoff.`
+    }))
+  }
+
+  useEffect(() => {
+    if (takeoff.sourceType === 'pdf' && pdfDocumentRef.current) {
+      renderPdfPage(takeoff.pdfPageNumber)
+    }
+  }, [takeoff.pdfPageNumber, takeoff.sourceType])
 
   const addPoint = (event) => {
     if (!takeoff.imageSrc) {
@@ -741,8 +778,8 @@ function TakeoffPage({
     }
 
     const svgRect = event.currentTarget.getBoundingClientRect()
-    const x = ((event.clientX - svgRect.left) / svgRect.width) * takeoff.imageWidth
-    const y = ((event.clientY - svgRect.top) / svgRect.height) * takeoff.imageHeight
+    const x = ((event.clientX - svgRect.left) / svgRect.width) * viewWidth
+    const y = ((event.clientY - svgRect.top) / svgRect.height) * viewHeight
 
     setTakeoff((current) => ({
       ...current,
@@ -790,6 +827,7 @@ function TakeoffPage({
     setTakeoff((current) => {
       const item = {
         id: `${current.selectedTool}-${Date.now()}`,
+        createdAt: Date.now(),
         type: current.selectedTool,
         label: toolMeta.label,
         points: current.draftPoints
@@ -818,10 +856,45 @@ function TakeoffPage({
     }
 
     if (file.type === 'application/pdf') {
-      setTakeoff((current) => ({
-        ...current,
-        notice: 'PDF support is the next step. For now, export the plan page to PNG or JPG and upload that image.'
-      }))
+      const pdfLib = window.pdfjsLib
+      if (!pdfLib) {
+        setTakeoff((current) => ({
+          ...current,
+          notice: 'PDF engine is still loading. Wait a few seconds and try the upload again.'
+        }))
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = async () => {
+        try {
+          const typedArray = new Uint8Array(reader.result)
+          const pdfDocument = await pdfLib.getDocument({ data: typedArray }).promise
+          pdfDocumentRef.current = pdfDocument
+
+          setTakeoff((current) => ({
+            ...current,
+            fileName: file.name,
+            sourceType: 'pdf',
+            imageSrc: '',
+            draftPoints: [],
+            scalePixels: 0,
+            areas: [],
+            lines: [],
+            pdfPageNumber: 1,
+            pdfPageCount: pdfDocument.numPages,
+            notice: `PDF loaded. Rendering page 1 of ${pdfDocument.numPages}.`
+          }))
+
+          await renderPdfPage(1, pdfDocument)
+        } catch {
+          setTakeoff((current) => ({
+            ...current,
+            notice: 'That PDF could not be read. Try a flatter PDF export or an image version of the plan.'
+          }))
+        }
+      }
+      reader.readAsArrayBuffer(file)
       return
     }
 
@@ -840,6 +913,7 @@ function TakeoffPage({
         setTakeoff((current) => ({
           ...current,
           fileName: file.name,
+          sourceType: 'image',
           imageSrc: String(reader.result),
           imageWidth: image.width,
           imageHeight: image.height,
@@ -847,6 +921,8 @@ function TakeoffPage({
           scalePixels: 0,
           areas: [],
           lines: [],
+          pdfPageNumber: 1,
+          pdfPageCount: 0,
           notice: 'Plan uploaded. Set the scale first using a known dimension.'
         }))
       }
@@ -866,6 +942,25 @@ function TakeoffPage({
   ]
 
   const activeToolMeta = getTakeoffToolMeta(takeoff.selectedTool)
+  const recentMeasurements = [...takeoff.areas, ...takeoff.lines].slice(-6).reverse()
+  const undoLastMeasurement = () => {
+    const lastArea = takeoff.areas[takeoff.areas.length - 1]
+    const lastLine = takeoff.lines[takeoff.lines.length - 1]
+
+    if (!lastArea && !lastLine) {
+      setTakeoff((current) => ({ ...current, notice: 'There is no saved trace to remove yet.' }))
+      return
+    }
+
+    const removeArea = lastArea && (!lastLine || lastArea.createdAt >= lastLine.createdAt)
+
+    setTakeoff((current) => ({
+      ...current,
+      areas: removeArea ? current.areas.slice(0, -1) : current.areas,
+      lines: removeArea ? current.lines : current.lines.slice(0, -1),
+      notice: 'Last saved measurement removed.'
+    }))
+  }
 
   return (
     <div
@@ -905,7 +1000,7 @@ function TakeoffPage({
                 border: 'none',
                 borderRadius: 14,
                 padding: '10px 14px',
-                background: takeoff.selectedTool === tool.id ? '#0f172a' : '#eff6ff',
+                background: takeoff.selectedTool === tool.id ? '#0f172a' : '#fff7ed',
                 color: takeoff.selectedTool === tool.id ? '#f8fafc' : '#0f172a',
                 fontWeight: 800,
                 cursor: 'pointer'
@@ -919,8 +1014,9 @@ function TakeoffPage({
         <div style={{ borderRadius: 22, overflow: 'hidden', border: '1px solid #d6e4ea', background: '#e2e8f0' }}>
           {takeoff.imageSrc ? (
             <svg
-              viewBox={`0 0 ${takeoff.imageWidth} ${takeoff.imageHeight}`}
+              viewBox={`0 0 ${viewWidth} ${viewHeight}`}
               onClick={addPoint}
+              onDoubleClick={completeCurrentMeasurement}
               style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair', background: '#0f172a' }}
             >
               <image href={takeoff.imageSrc} width={takeoff.imageWidth} height={takeoff.imageHeight} preserveAspectRatio="xMidYMid meet" />
@@ -986,7 +1082,7 @@ function TakeoffPage({
             <div style={{ padding: isMobile ? 24 : 48, display: 'grid', gap: 16, justifyItems: 'start', background: 'linear-gradient(135deg, #dbeafe 0%, #ecfeff 100%)' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>Drop in a roof plan image to start the takeoff.</div>
               <div style={{ maxWidth: 620, lineHeight: 1.6, color: '#334155' }}>
-                Export the roof plan page from PDF as PNG or JPG, then calibrate a known dimension and trace the plan.
+                Upload a PDF, PNG, or JPG roof plan, calibrate a known dimension, then trace the plan.
               </div>
             </div>
           )}
@@ -996,8 +1092,14 @@ function TakeoffPage({
           <button onClick={completeCurrentMeasurement} style={{ border: 'none', borderRadius: 14, padding: '12px 16px', background: '#0f766e', color: '#f8fafc', fontWeight: 800, cursor: 'pointer' }}>
             Complete current trace
           </button>
+          <button onClick={() => setTakeoff((current) => ({ ...current, draftPoints: current.draftPoints.slice(0, -1), notice: 'Last point removed.' }))} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '12px 16px', background: '#ffffff', color: '#0f172a', fontWeight: 800, cursor: 'pointer' }}>
+            Undo point
+          </button>
           <button onClick={() => setTakeoff((current) => ({ ...current, draftPoints: [], notice: 'Current trace cleared.' }))} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '12px 16px', background: '#ffffff', color: '#0f172a', fontWeight: 800, cursor: 'pointer' }}>
             Clear trace
+          </button>
+          <button onClick={undoLastMeasurement} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '12px 16px', background: '#ffffff', color: '#0f172a', fontWeight: 800, cursor: 'pointer' }}>
+            Undo last save
           </button>
           <button onClick={clearTakeoff} style={{ border: '1px solid #fecaca', borderRadius: 14, padding: '12px 16px', background: '#fff1f2', color: '#be123c', fontWeight: 800, cursor: 'pointer' }}>
             Reset takeoff
@@ -1011,6 +1113,20 @@ function TakeoffPage({
           <div style={{ display: 'grid', gap: 14 }}>
             <Field label="Plan image">
               <input type="file" accept="image/*,.pdf" onChange={handleFileChange} style={inputStyle} />
+            </Field>
+            {takeoff.sourceType === 'pdf' && takeoff.pdfPageCount > 1 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 10, alignItems: 'center' }}>
+                <button onClick={() => setTakeoff((current) => ({ ...current, pdfPageNumber: Math.max(1, current.pdfPageNumber - 1), draftPoints: [] }))} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '10px 12px', background: '#fff', fontWeight: 800, cursor: 'pointer' }}>
+                  Prev
+                </button>
+                <div style={{ textAlign: 'center', fontWeight: 700 }}>PDF page {takeoff.pdfPageNumber} of {takeoff.pdfPageCount}</div>
+                <button onClick={() => setTakeoff((current) => ({ ...current, pdfPageNumber: Math.min(current.pdfPageCount, current.pdfPageNumber + 1), draftPoints: [] }))} style={{ border: '1px solid #d6e4ea', borderRadius: 14, padding: '10px 12px', background: '#fff', fontWeight: 800, cursor: 'pointer' }}>
+                  Next
+                </button>
+              </div>
+            ) : null}
+            <Field label="Canvas zoom">
+              <input type="range" min="1" max="3" step="0.25" value={takeoff.zoom} onChange={(event) => setTakeoff((current) => ({ ...current, zoom: Number(event.target.value) }))} />
             </Field>
             <Field label="Known scale length (metres)" hint="Example: trace a wall noted as 6m, then enter 6 here.">
               <input type="number" min="0.1" step="0.1" value={takeoff.scaleLengthMetres} onChange={(event) => setTakeoff((current) => ({ ...current, scaleLengthMetres: Number(event.target.value) }))} style={inputStyle} />
@@ -1027,6 +1143,9 @@ function TakeoffPage({
             <div style={{ borderRadius: 18, padding: '14px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', lineHeight: 1.5 }}>
               {takeoff.notice}
             </div>
+            <div style={{ borderRadius: 18, padding: '14px 16px', background: '#fafaf9', border: '1px solid #e4e4e7', color: '#3f3f46', lineHeight: 1.5 }}>
+              Click to place points. Double-click to finish the current trace faster. Use `Undo point` if you miss a corner.
+            </div>
           </div>
         </section>
 
@@ -1042,6 +1161,18 @@ function TakeoffPage({
             <div>Battens estimate: <strong>{summary.battensLm.toFixed(1)} lm</strong></div>
             <div>Waste-adjusted roof area: <strong>{summary.wasteAdjustedArea.toFixed(1)} sqm</strong></div>
             <div>Sheet estimate: <strong>{summary.sheetCount}</strong></div>
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 18 }}>
+            <div style={{ fontWeight: 800 }}>Recent traces</div>
+            {recentMeasurements.length === 0 ? (
+              <div style={{ color: '#71717a' }}>No saved traces yet.</div>
+            ) : (
+              recentMeasurements.map((item) => (
+                <div key={item.id} style={{ borderRadius: 14, padding: '10px 12px', background: '#fafaf9', border: '1px solid #e4e4e7', color: '#3f3f46' }}>
+                  {item.label}
+                </div>
+              ))
+            )}
           </div>
         </section>
 
