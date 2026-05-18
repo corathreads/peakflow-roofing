@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { hasSupabaseConfig, supabase } from './supabaseClient'
+import { hasApifyConfig, runActor, getRunStatus, getDatasetItems } from './apifyClient'
 
 const DEFAULT_MATERIALS = {
   roofing: [
@@ -1216,6 +1217,204 @@ function useViewport() {
   }
 }
 
+const GOOGLE_MAPS_ACTOR = 'apify~google-maps-scraper'
+const LEADS_SEARCHES = [
+  'roofing Barossa Valley SA',
+  'roof repair Barossa Valley SA',
+  'building contractor Barossa Valley SA',
+  'guttering Barossa Valley SA'
+]
+
+function LeadCard({ lead }) {
+  const stars = lead.totalScore ? Number(lead.totalScore).toFixed(1) : null
+  return (
+    <div
+      style={{
+        background: 'rgba(255,255,255,0.88)',
+        border: '1px solid rgba(212,212,216,0.95)',
+        borderRadius: 18,
+        padding: '18px 22px',
+        display: 'grid',
+        gap: 6
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: BRAND_DARK }}>{lead.title}</div>
+          {lead.categoryName && (
+            <div style={{ fontSize: 12, color: BRAND_ACCENT, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>
+              {lead.categoryName}
+            </div>
+          )}
+        </div>
+        {stars && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <span style={{ color: '#f59e0b', fontSize: 15 }}>★</span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{stars}</span>
+            {lead.reviewsCount > 0 && (
+              <span style={{ color: '#64748b', fontSize: 13 }}>({lead.reviewsCount})</span>
+            )}
+          </div>
+        )}
+      </div>
+      {lead.address && (
+        <div style={{ fontSize: 14, color: '#475569' }}>{lead.address}</div>
+      )}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+        {lead.phone && (
+          <a href={`tel:${lead.phone}`} style={{ fontSize: 14, color: BRAND_DARK, fontWeight: 600, textDecoration: 'none' }}>
+            {lead.phone}
+          </a>
+        )}
+        {lead.website && (
+          <a href={lead.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: '#0284c7', textDecoration: 'none' }}>
+            Website
+          </a>
+        )}
+        {lead.url && (
+          <a href={lead.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, color: '#0284c7', textDecoration: 'none' }}>
+            Google Maps
+          </a>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LeadsPage({ isMobile }) {
+  const [leads, setLeads] = useState([])
+  const [fetchStatus, setFetchStatus] = useState('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const [lastFetched, setLastFetched] = useState(null)
+  const pollRef = useRef(null)
+
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+
+  const pull = async () => {
+    if (!hasApifyConfig) {
+      setFetchStatus('error')
+      setErrorMsg('Apify API token not configured. Add VITE_APIFY_API_TOKEN to your .env file.')
+      return
+    }
+    setFetchStatus('starting')
+    setLeads([])
+    setErrorMsg('')
+    try {
+      const run = await runActor(GOOGLE_MAPS_ACTOR, {
+        searchStringsArray: LEADS_SEARCHES,
+        maxCrawledPlacesPerSearch: 10,
+        language: 'en',
+        countryCode: 'au',
+        maxImages: 0,
+        maxReviews: 0
+      })
+      setFetchStatus('running')
+      const poll = async () => {
+        const runData = await getRunStatus(run.id)
+        if (runData.status === 'SUCCEEDED') {
+          const items = await getDatasetItems(run.defaultDatasetId)
+          setLeads(items.filter(i => i.title))
+          setLastFetched(new Date())
+          setFetchStatus('done')
+        } else if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(runData.status)) {
+          setFetchStatus('error')
+          setErrorMsg(`Actor run ${runData.status.toLowerCase()}. Check your Apify account.`)
+        } else {
+          pollRef.current = setTimeout(poll, 6000)
+        }
+      }
+      await poll()
+    } catch (e) {
+      setFetchStatus('error')
+      setErrorMsg(e.message || 'Failed to start Apify run')
+    }
+  }
+
+  const isBusy = fetchStatus === 'starting' || fetchStatus === 'running'
+
+  return (
+    <div style={{ display: 'grid', gap: 20 }}>
+      <section
+        style={{
+          ...sectionCardStyle,
+          padding: '24px 28px',
+          display: 'grid',
+          gap: 16
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: BRAND_DARK }}>Barossa Region — Roofing Leads</div>
+            <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
+              Google Maps · {LEADS_SEARCHES.length} search queries · South Australia
+            </div>
+          </div>
+          <button
+            onClick={pull}
+            disabled={isBusy}
+            style={{
+              background: isBusy
+                ? '#cbd5e1'
+                : `linear-gradient(135deg, ${BRAND_DARK} 0%, ${BRAND_ACCENT} 100%)`,
+              color: isBusy ? '#64748b' : '#f8fafc',
+              border: 'none',
+              borderRadius: 14,
+              padding: '12px 24px',
+              fontWeight: 800,
+              fontSize: 15,
+              cursor: isBusy ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {fetchStatus === 'starting' ? 'Starting…' : fetchStatus === 'running' ? 'Scanning…' : 'Pull Leads'}
+          </button>
+        </div>
+
+        {isBusy && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#475569', fontSize: 14 }}>
+            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block', fontSize: 18 }}>⟳</span>
+            {fetchStatus === 'starting' ? 'Launching Apify actor…' : 'Scanning Google Maps — this takes about 60–90 seconds…'}
+          </div>
+        )}
+
+        {fetchStatus === 'error' && (
+          <div style={{ color: '#dc2626', fontSize: 14, fontWeight: 600 }}>
+            {errorMsg}
+          </div>
+        )}
+
+        {fetchStatus === 'done' && (
+          <div style={{ fontSize: 14, color: '#16a34a', fontWeight: 600 }}>
+            {leads.length} leads found · Last pulled {lastFetched?.toLocaleTimeString()}
+          </div>
+        )}
+      </section>
+
+      {leads.length > 0 && (
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)' }}>
+          {leads.map((lead, i) => (
+            <LeadCard key={lead.placeId || i} lead={lead} />
+          ))}
+        </div>
+      )}
+
+      {fetchStatus === 'idle' && (
+        <section
+          style={{
+            ...sectionCardStyle,
+            padding: '32px 28px',
+            textAlign: 'center',
+            color: '#64748b'
+          }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📍</div>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>No leads pulled yet</div>
+          <div style={{ fontSize: 14 }}>Hit "Pull Leads" to scan Google Maps for roofing contacts in the Barossa region.</div>
+        </section>
+      )}
+    </div>
+  )
+}
+
 function Header({ activePage, setActivePage, isMobile }) {
   const descriptions = {
     estimator: {
@@ -1233,6 +1432,10 @@ function Header({ activePage, setActivePage, isMobile }) {
     takeoff: {
       title: 'Upload the plans and knock out a measured takeoff.',
       text: 'Set the scale from the drawing, trace roof area and lineal items, then send those measured quantities straight into the quote.'
+    },
+    leads: {
+      title: 'Pull fresh roofing leads from your area.',
+      text: 'Apify scans Google Maps for roofing contacts, contractors, and property managers in the Barossa region — ready to call or quote.'
     }
   }
 
@@ -1260,7 +1463,7 @@ function Header({ activePage, setActivePage, isMobile }) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(5, minmax(0, 1fr))',
           width: isMobile ? '100%' : 'auto',
           background: 'rgba(255,255,255,0.72)',
           border: '1px solid #d7e7ef',
@@ -1274,7 +1477,8 @@ function Header({ activePage, setActivePage, isMobile }) {
           { id: 'estimator', label: 'Job Estimator' },
           { id: 'materials', label: 'Price Board' },
           { id: 'calendar', label: 'Run Sheet' },
-          { id: 'takeoff', label: 'Plan Takeoff' }
+          { id: 'takeoff', label: 'Plan Takeoff' },
+          { id: 'leads', label: 'Leads' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -2473,6 +2677,8 @@ export default function App() {
             isMobile={isMobile}
             isTablet={isTablet}
           />
+        ) : activePage === 'leads' ? (
+          <LeadsPage isMobile={isMobile} />
         ) : (
           <CalendarPage
             jobs={jobs}
